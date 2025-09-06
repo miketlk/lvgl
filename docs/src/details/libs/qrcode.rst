@@ -28,6 +28,9 @@ If you need to re-modify the size and color, use
 :cpp:func:`lv_qrcode_set_light_color` respectively, and then
 call :cpp:func:`lv_qrcode_update` again to update the QR Code.
 
+Optionally, set encoding options before updating: :cpp:func:`lv_qrcode_set_version_range`,
+:cpp:func:`lv_qrcode_set_mode`, :cpp:func:`lv_qrcode_set_mask`, :cpp:func:`lv_qrcode_set_ecc`,
+:cpp:func:`lv_qrcode_set_boost_ecl`.
 
 
 Notes

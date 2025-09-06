@@ -27,11 +27,22 @@ extern "C" {
  *      TYPEDEFS
  **********************/
 
+/*Options of the QR code generator*/
+struct _lv_qrcode_opts_t {
+    uint8_t min_version : 6;  // default 0 => AUTO
+    uint8_t max_version : 6;  // default 0 => AUTO
+    uint8_t mode : 1;         // default 0 => BINARY
+    int8_t  mask : 4;         // default -1 => AUTO
+    uint8_t ecc : 2;          // default M
+    uint8_t boost_ecl : 1;    // default 1
+};
+
 /*Data of qrcode*/
 struct _lv_qrcode_t {
     lv_canvas_t canvas;
     lv_color_t dark_color;
     lv_color_t light_color;
+    struct _lv_qrcode_opts_t opts;
 };
 
 
