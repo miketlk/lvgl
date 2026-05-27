@@ -95,6 +95,7 @@ void lv_qrcode_set_size(lv_obj_t * obj, int32_t size)
     }
 
     lv_canvas_set_draw_buf(obj, new_buf);
+    lv_obj_set_size(obj, size, size);
     LV_LOG_INFO("set canvas buffer: %p, size = %d", (void *)new_buf, (int)size);
 
     /*Clear canvas buffer*/
