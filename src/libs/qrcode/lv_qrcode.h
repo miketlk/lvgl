@@ -147,6 +147,30 @@ void lv_qrcode_set_light_color(lv_obj_t * obj, lv_color_t color);
 void lv_qrcode_set_version_range(lv_obj_t * obj, int32_t min_ver, int32_t max_ver);
 
 /**
+ * Get the QR symbol version used by the last successful update.
+ * @param obj pointer to a QR code object
+ * @return QR version 1..40, or 0 if no successful update has run
+ */
+int32_t lv_qrcode_get_selected_version(const lv_obj_t * obj);
+
+/**
+ * Enable/disable fixed-size drawing.
+ * When enabled, the QR and its quiet zone fill the full object canvas so
+ * different payloads occupy the same screen space. Disabled by default for
+ * backwards-compatible integer-scale drawing.
+ * @param obj pointer to a QR code object
+ * @param enable true to enable, false to disable
+ */
+void lv_qrcode_set_fixed_size(lv_obj_t * obj, bool enable);
+
+/**
+ * Get whether fixed-size drawing is enabled.
+ * @param obj pointer to a QR code object
+ * @return true if fixed-size drawing is enabled
+ */
+bool lv_qrcode_get_fixed_size(const lv_obj_t * obj);
+
+/**
  * Set the input mode (segment mode mirror).
  * @param obj pointer to a QR code object
  * @param mode one of LV_QRCODE_MODE_*

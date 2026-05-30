@@ -44,6 +44,16 @@ QRCODE_STATIC_ASSERT(LV_QRCODE_MASK_7    == (int)qrcodegen_Mask_7);
  *      DEFINES
  *********************/
 #define MY_CLASS (&lv_qrcode_class)
+#define QR_LIGHT_COLOR_PALETTE_INDEX 0
+#define QR_DARK_COLOR_PALETTE_INDEX 1
+#define QR_QUIET_ZONE_MODULES 4
+#define QR_TOTAL_QUIET_ZONE_MODULES (QR_QUIET_ZONE_MODULES * 2)
+#define QR_VERSION_BASE_SIZE 17
+#define QR_VERSION_SIZE_STEP 4
+#define QR_I1_PALETTE_SIZE_BYTES 8
+#define QR_BITS_PER_BYTE 8
+#define QR_BITS_PER_BYTE_SHIFT 3
+#define QR_BYTE_ALIGNMENT_MASK (QR_BITS_PER_BYTE - 1)
 
 /**********************
  *      TYPEDEFS
@@ -136,6 +146,27 @@ void lv_qrcode_set_version_range(lv_obj_t * obj, int32_t min_ver, int32_t max_ve
     qrcode->opts.max_version = (uint8_t)max_ver;
 }
 
+int32_t lv_qrcode_get_selected_version(const lv_obj_t * obj)
+{
+    LV_ASSERT_OBJ(obj, MY_CLASS);
+    const lv_qrcode_t * qrcode = (const lv_qrcode_t *)obj;
+    return qrcode->opts.selected_version;
+}
+
+void lv_qrcode_set_fixed_size(lv_obj_t * obj, bool enable)
+{
+    LV_ASSERT_OBJ(obj, MY_CLASS);
+    lv_qrcode_t * qrcode = (lv_qrcode_t *)obj;
+    qrcode->opts.fixed_size = enable ? 1 : 0;
+}
+
+bool lv_qrcode_get_fixed_size(const lv_obj_t * obj)
+{
+    LV_ASSERT_OBJ(obj, MY_CLASS);
+    const lv_qrcode_t * qrcode = (const lv_qrcode_t *)obj;
+    return qrcode->opts.fixed_size ? true : false;
+}
+
 void lv_qrcode_set_mode(lv_obj_t * obj, lv_qrcode_mode_t mode)
 {
     LV_ASSERT_OBJ(obj, MY_CLASS);
@@ -179,8 +210,10 @@ lv_result_t lv_qrcode_update(lv_obj_t * obj, const void * data, uint32_t data_le
     }
 
     lv_draw_buf_clear(draw_buf, NULL);
-    lv_canvas_set_palette(obj, 0, lv_color_to_32(qrcode->light_color, LV_OPA_COVER));
-    lv_canvas_set_palette(obj, 1, lv_color_to_32(qrcode->dark_color, LV_OPA_COVER));
+    lv_canvas_set_palette(obj, QR_LIGHT_COLOR_PALETTE_INDEX,
+                          lv_color_to_32(qrcode->light_color, LV_OPA_COVER));
+    lv_canvas_set_palette(obj, QR_DARK_COLOR_PALETTE_INDEX,
+                          lv_color_to_32(qrcode->dark_color, LV_OPA_COVER));
     lv_image_cache_drop(draw_buf);
 
     lv_obj_invalidate(obj);
@@ -188,33 +221,40 @@ lv_result_t lv_qrcode_update(lv_obj_t * obj, const void * data, uint32_t data_le
     if(data_len > qrcodegen_BUFFER_LEN_MAX) return LV_RESULT_INVALID;
 
     enum qrcodegen_Ecc ecc = (enum qrcodegen_Ecc)qrcode->opts.ecc;
-    int32_t qr_version = qrcode->opts.min_version ? qrcode->opts.min_version : qrcodegen_getMinFitVersion(ecc, data_len);
+    int32_t qr_version = qrcode->opts.min_version ? qrcode->opts.min_version :
+                         qrcodegen_getMinFitVersion(ecc, data_len);
     if(qr_version <= 0) return LV_RESULT_INVALID;
     int32_t qr_size = qrcodegen_version2size(qr_version);
     if(qr_size <= 0) return LV_RESULT_INVALID;
-    int32_t scale = draw_buf->header.w / qr_size;
+    int32_t scale = draw_buf->header.w / (qr_size + QR_TOTAL_QUIET_ZONE_MODULES);
     if(scale <= 0) return LV_RESULT_INVALID;
 
     /* Pick the largest QR code that still maintains scale. */
     for(int32_t i = qr_version + 1; i < qrcodegen_VERSION_MAX; i++) {
         if(qrcode->opts.max_version && i > qrcode->opts.max_version) break;
-        if(qrcodegen_version2size(i) * scale > draw_buf->header.w)
+        if((qrcodegen_version2size(i) + QR_TOTAL_QUIET_ZONE_MODULES) * scale > draw_buf->header.w)
             break;
 
         qr_version = i;
     }
     qr_size = qrcodegen_version2size(qr_version);
 
-    uint8_t * qr0 = lv_malloc(qrcodegen_BUFFER_LEN_FOR_VERSION(qr_version));
+    size_t qr_buf_len = qrcodegen_BUFFER_LEN_FOR_VERSION(qr_version);
+    uint8_t * qr0 = lv_malloc(qr_buf_len);
     LV_ASSERT_MALLOC(qr0);
-    uint8_t * data_tmp = lv_malloc(qrcodegen_BUFFER_LEN_FOR_VERSION(qr_version));
+    uint8_t * data_tmp = lv_malloc(qr_buf_len);
     LV_ASSERT_MALLOC(data_tmp);
-    lv_memcpy(data_tmp, data, data_len);
 
     bool ok;
     int mask = qrcode->opts.mask;
     bool boost = qrcode->opts.boost_ecl ? true : false;
     if(qrcode->opts.mode == LV_QRCODE_MODE_BINARY) {
+        if(data_len > qr_buf_len) {
+            lv_free(qr0);
+            lv_free(data_tmp);
+            return LV_RESULT_INVALID;
+        }
+        lv_memcpy(data_tmp, data, data_len);
         ok = qrcodegen_encodeBinary(data_tmp, data_len,
                                      qr0, ecc,
                                      qr_version, qr_version,
@@ -243,58 +283,100 @@ lv_result_t lv_qrcode_update(lv_obj_t * obj, const void * data, uint32_t data_le
 
     int32_t obj_w = draw_buf->header.w;
     qr_size = qrcodegen_getSize(qr0);
-    scale = obj_w / qr_size;
-    int scaled = qr_size * scale;
-    int margin = (obj_w - scaled) / 2;
-    uint8_t * buf_u8 = (uint8_t *)draw_buf->data + 8;    /*+8 skip the palette*/
-    lv_color_t c = lv_color_hex(1);
-
-    /* Copy the qr code canvas:
-     * A simple `lv_canvas_set_px` would work but it's slow for so many pixels.
-     * So buffer 1 byte (8 px) from the qr code and set it in the canvas image */
+    qrcode->opts.selected_version =
+        (uint8_t)((qr_size - QR_VERSION_BASE_SIZE) / QR_VERSION_SIZE_STEP);
+    uint8_t * buf_u8 = (uint8_t *)draw_buf->data + QR_I1_PALETTE_SIZE_BYTES;
     uint32_t row_byte_cnt = draw_buf->header.stride;
-    int y;
-    for(y = margin; y < scaled + margin; y += scale) {
-        uint8_t b = 0;
-        uint8_t p = 0;
-        bool aligned = false;
-        int x;
-        for(x = margin; x < scaled + margin; x++) {
-            bool a = qrcodegen_getModule(qr0, (x - margin) / scale, (y - margin) / scale);
 
-            if(aligned == false && (x & 0x7) == 0) aligned = true;
+    if(qrcode->opts.fixed_size) {
+        int32_t total_modules = qr_size + QR_TOTAL_QUIET_ZONE_MODULES;
 
-            if(aligned == false) {
-                if(a) {
-                    lv_canvas_set_px(obj, x, y, c, LV_OPA_COVER);
-                }
-            }
-            else {
-                if(!a) b |= (1 << (7 - p));
+        /* Map the QR, including the required 4-module quiet zone, into the full
+         * canvas so every payload occupies the same screen slot. */
+        int y;
+        for(y = 0; y < obj_w; y++) {
+            uint8_t b = 0;
+            uint8_t p = 0;
+            int32_t module_y = (y * total_modules) / obj_w - QR_QUIET_ZONE_MODULES;
+            int x;
+            for(x = 0; x < obj_w; x++) {
+                int32_t module_x = (x * total_modules) / obj_w - QR_QUIET_ZONE_MODULES;
+                bool a = module_x >= 0 && module_x < qr_size &&
+                         module_y >= 0 && module_y < qr_size &&
+                         qrcodegen_getModule(qr0, module_x, module_y);
+
+                if(!a) b |= (1 << ((QR_BITS_PER_BYTE - 1) - p));
                 p++;
-                if(p == 8) {
-                    uint32_t px = row_byte_cnt * y + (x >> 3);
+                if(p == QR_BITS_PER_BYTE) {
+                    uint32_t px = row_byte_cnt * y + (x >> QR_BITS_PER_BYTE_SHIFT);
                     buf_u8[px] = ~b;
                     b = 0;
                     p = 0;
                 }
             }
+
+            /*Process the last byte of the row*/
+            if(p) {
+                /*Make the rest of the bits white*/
+                b |= (1 << (QR_BITS_PER_BYTE - p)) - 1;
+
+                uint32_t px = row_byte_cnt * y + (x >> QR_BITS_PER_BYTE_SHIFT);
+                buf_u8[px] = ~b;
+            }
         }
+    }
+    else {
+        scale = obj_w / (qr_size + QR_TOTAL_QUIET_ZONE_MODULES);
+        int scaled = qr_size * scale;
+        int margin = (obj_w - scaled) / 2;
+        lv_color_t c = lv_color_hex(QR_DARK_COLOR_PALETTE_INDEX);
 
-        /*Process the last byte of the row*/
-        if(p) {
-            /*Make the rest of the bits white*/
-            b |= (1 << (8 - p)) - 1;
+        /* Copy the qr code canvas:
+         * A simple `lv_canvas_set_px` would work but it's slow for so many pixels.
+         * So buffer 1 byte (8 px) from the qr code and set it in the canvas image */
+        int y;
+        for(y = margin; y < scaled + margin; y += scale) {
+            uint8_t b = 0;
+            uint8_t p = 0;
+            bool aligned = false;
+            int x;
+            for(x = margin; x < scaled + margin; x++) {
+                bool a = qrcodegen_getModule(qr0, (x - margin) / scale, (y - margin) / scale);
 
-            uint32_t px = row_byte_cnt * y + (x >> 3);
-            buf_u8[px] = ~b;
-        }
+                if(aligned == false && (x & QR_BYTE_ALIGNMENT_MASK) == 0) aligned = true;
 
-        /*The Qr is probably scaled so simply to the repeated rows*/
-        int s;
-        const uint8_t * row_ori = buf_u8 + row_byte_cnt * y;
-        for(s = 1; s < scale; s++) {
-            lv_memcpy((uint8_t *)buf_u8 + row_byte_cnt * (y + s), row_ori, row_byte_cnt);
+                if(aligned == false) {
+                    if(a) {
+                        lv_canvas_set_px(obj, x, y, c, LV_OPA_COVER);
+                    }
+                }
+                else {
+                    if(!a) b |= (1 << ((QR_BITS_PER_BYTE - 1) - p));
+                    p++;
+                    if(p == QR_BITS_PER_BYTE) {
+                        uint32_t px = row_byte_cnt * y + (x >> QR_BITS_PER_BYTE_SHIFT);
+                        buf_u8[px] = ~b;
+                        b = 0;
+                        p = 0;
+                    }
+                }
+            }
+
+            /*Process the last byte of the row*/
+            if(p) {
+                /*Make the rest of the bits white*/
+                b |= (1 << (QR_BITS_PER_BYTE - p)) - 1;
+
+                uint32_t px = row_byte_cnt * y + (x >> QR_BITS_PER_BYTE_SHIFT);
+                buf_u8[px] = ~b;
+            }
+
+            /*The Qr is probably scaled so simply to the repeated rows*/
+            int s;
+            const uint8_t * row_ori = buf_u8 + row_byte_cnt * y;
+            for(s = 1; s < scale; s++) {
+                lv_memcpy((uint8_t *)buf_u8 + row_byte_cnt * (y + s), row_ori, row_byte_cnt);
+            }
         }
     }
 
@@ -326,10 +408,12 @@ static void lv_qrcode_constructor(const lv_obj_class_t * class_p, lv_obj_t * obj
     qrcode->opts = (struct _lv_qrcode_opts_t) {
         .min_version = 0,
         .max_version = 0,
+        .selected_version = 0,
         .mode = LV_QRCODE_MODE_BINARY,  /* default: binary input */
         .mask = qrcodegen_Mask_AUTO,
         .ecc = LV_QRCODE_ECC_M,
-        .boost_ecl = 1
+        .boost_ecl = 1,
+        .fixed_size = 0
     };
 }
 

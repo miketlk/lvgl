@@ -31,10 +31,12 @@ extern "C" {
 struct _lv_qrcode_opts_t {
     uint8_t min_version : 6;  // default 0 => AUTO
     uint8_t max_version : 6;  // default 0 => AUTO
+    uint8_t selected_version : 6; // version used by last successful update
     uint8_t mode : 1;         // default 0 => BINARY
     int8_t  mask : 4;         // default -1 => AUTO
     uint8_t ecc : 2;          // default M
     uint8_t boost_ecl : 1;    // default 1
+    uint8_t fixed_size : 1;   // default 0 => integer-scale legacy drawing
 };
 
 /*Data of qrcode*/
